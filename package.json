@@ -1,0 +1,19 @@
+{
+  "name": "nse-option-chain",
+  "version": "1.0.0",
+  "description": "NSE NIFTY 50 option chain scraper + simple UI (current & next week expiry)",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^4.19.2",
+    "stock-nse-india": "^1.4.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

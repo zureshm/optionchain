@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NIFTY 50 Option Chain</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .itm { background-color: rgba(250, 204, 21, 0.10); }
+    .atm-row { background-color: rgba(59, 130, 246, 0.18); }
+    .num { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-200 min-h-screen">
+  <div class="max-w-6xl mx-auto px-4 py-6">
+    <!-- Header -->
+    <header class="flex flex-wrap items-center justify-between gap-4 mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-white">NIFTY 50 Option Chain</h1>
+        <p class="text-sm text-slate-400">Scraped from NSE · current &amp; next week expiry</p>
+      </div>
+      <div class="flex items-center gap-6">
+        <div class="text-right">
+          <div class="text-xs uppercase tracking-wide text-slate-500">Spot</div>
+          <div id="spot" class="text-2xl font-bold text-emerald-400 num">--</div>
+        </div>
+        <div class="text-right">
+          <div class="text-xs uppercase tracking-wide text-slate-500">Next refresh</div>
+          <div id="countdown" class="text-2xl font-bold text-sky-400 num">--</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Status -->
+    <div id="status" class="hidden mb-4 rounded-lg px-4 py-2 text-sm"></div>
+
+    <!-- Expiry tabs -->
+    <div id="tabs" class="flex gap-2 mb-4"></div>
+
+    <!-- Legend -->
+    <div class="flex flex-wrap items-center gap-4 mb-3 text-xs text-slate-400">
+      <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:rgba(250,204,21,0.35)"></span> In&nbsp;the&nbsp;Money</span>
+      <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:rgba(59,130,246,0.5)"></span> At&nbsp;the&nbsp;Money</span>
+      <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded border border-slate-600"></span> Out&nbsp;of&nbsp;the&nbsp;Money</span>
+    </div>
+
+    <!-- Table -->
+    <div class="overflow-x-auto rounded-xl border border-slate-800">
+      <table class="w-full text-sm num">
+        <thead class="bg-slate-900 text-slate-400">
+          <tr>
+            <th colspan="4" class="py-2 text-center text-emerald-400 font-semibold border-r border-slate-800">CALLS (CE)</th>
+            <th class="py-2 px-3 text-center text-white">STRIKE</th>
+            <th colspan="4" class="py-2 text-center text-rose-400 font-semibold border-l border-slate-800">PUTS (PE)</th>
+          </tr>
+          <tr class="text-[11px] uppercase tracking-wide">
+            <th class="py-1 px-2 text-right">OI</th>
+            <th class="py-1 px-2 text-right">Chg OI</th>
+            <th class="py-1 px-2 text-right">IV</th>
+            <th class="py-1 px-2 text-right border-r border-slate-800">LTP</th>
+            <th class="py-1 px-3 text-center">Price</th>
+            <th class="py-1 px-2 text-left border-l border-slate-800">LTP</th>
+            <th class="py-1 px-2 text-left">IV</th>
+            <th class="py-1 px-2 text-left">Chg OI</th>
+            <th class="py-1 px-2 text-left">OI</th>
+          </tr>
+        </thead>
+        <tbody id="chain-body">
+          <tr><td colspan="9" class="py-10 text-center text-slate-500">Loading option chain…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p id="footer-meta" class="text-xs text-slate-500 mt-3"></p>
+  </div>
+
+  <script>
+    const REFRESH_SECONDS = 10;
+    let activeExpiry = 'current';
+    let countdown = REFRESH_SECONDS;
+    let latest = null;
+
+    const fmt = (n) => (n == null ? '-' : Number(n).toLocaleString('en-IN'));
+    const fmt2 = (n) => (n == null ? '-' : Number(n).toFixed(2));
+
+    function setStatus(msg, type) {
+      const el = document.getElementById('status');
+      if (!msg) { el.classList.add('hidden'); return; }
+      el.classList.remove('hidden');
+      el.className = 'mb-4 rounded-lg px-4 py-2 text-sm ' +
+        (type === 'error' ? 'bg-rose-950 text-rose-300 border border-rose-800'
+                          : 'bg-amber-950 text-amber-300 border border-amber-800');
+      el.textContent = msg;
+    }
+
+    function renderTabs() {
+      if (!latest) return;
+      const tabs = document.getElementById('tabs');
+      tabs.innerHTML = '';
+      latest.expiries.forEach((e) => {
+        const btn = document.createElement('button');
+        const isActive = e.label === activeExpiry;
+        btn.className = 'px-4 py-2 rounded-lg text-sm font-medium transition ' +
+          (isActive ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700');
+        const tag = e.label === 'current' ? 'Current Week' : 'Next Week';
+        btn.textContent = `${tag} · ${e.expiryDate}`;
+        btn.onclick = () => { activeExpiry = e.label; render(); };
+        tabs.appendChild(btn);
+      });
+    }
+
+    function render() {
+      renderTabs();
+      const body = document.getElementById('chain-body');
+      if (!latest) return;
+      const exp = latest.expiries.find((e) => e.label === activeExpiry) || latest.expiries[0];
+      if (!exp) { body.innerHTML = '<tr><td colspan="9" class="py-10 text-center text-slate-500">No data.</td></tr>'; return; }
+
+      body.innerHTML = exp.rows.map((r) => {
+        const isATM = r.strikePrice === exp.atmStrike;
+        const ceItm = r.strikePrice < exp.atmStrike; // calls ITM below ATM
+        const peItm = r.strikePrice > exp.atmStrike; // puts ITM above ATM
+        const rowCls = isATM ? 'atm-row font-semibold' : '';
+        const ceCls = ceItm ? 'itm' : '';
+        const peCls = peItm ? 'itm' : '';
+        return `<tr class="${rowCls} border-t border-slate-800/60 hover:bg-slate-800/40">
+          <td class="px-2 py-1 text-right ${ceCls}">${fmt(r.CE.oi)}</td>
+          <td class="px-2 py-1 text-right ${ceCls} ${r.CE.changeOi>=0?'text-emerald-400':'text-rose-400'}">${fmt(r.CE.changeOi)}</td>
+          <td class="px-2 py-1 text-right ${ceCls}">${fmt2(r.CE.iv)}</td>
+          <td class="px-2 py-1 text-right border-r border-slate-800 ${ceCls}">${fmt2(r.CE.ltp)}</td>
+          <td class="px-3 py-1 text-center font-bold ${isATM?'text-sky-300':'text-white'}">${fmt(r.strikePrice)}</td>
+          <td class="px-2 py-1 text-left border-l border-slate-800 ${peCls}">${fmt2(r.PE.ltp)}</td>
+          <td class="px-2 py-1 text-left ${peCls}">${fmt2(r.PE.iv)}</td>
+          <td class="px-2 py-1 text-left ${peCls} ${r.PE.changeOi>=0?'text-emerald-400':'text-rose-400'}">${fmt(r.PE.changeOi)}</td>
+          <td class="px-2 py-1 text-left ${peCls}">${fmt(r.PE.oi)}</td>
+        </tr>`;
+      }).join('');
+
+      document.getElementById('spot').textContent = fmt2(latest.underlyingValue);
+      document.getElementById('footer-meta').textContent =
+        `NSE timestamp: ${latest.timestamp || '-'} · cache age: ${latest.cacheAgeSeconds ?? '-'}s · ATM strike: ${fmt(exp.atmStrike)}`;
+    }
+
+    async function fetchData() {
+      try {
+        const res = await fetch('/api/option-chain');
+        if (!res.ok) {
+          const e = await res.json().catch(() => ({}));
+          setStatus(e.error || ('Server error ' + res.status), 'error');
+          return;
+        }
+        latest = await res.json();
+        setStatus(latest.staleError ? ('Showing cached data. Last NSE error: ' + latest.staleError) : '', 'warn');
+        render();
+      } catch (err) {
+        setStatus('Cannot reach backend: ' + err.message, 'error');
+      }
+    }
+
+    function tick() {
+      countdown--;
+      if (countdown <= 0) {
+        countdown = REFRESH_SECONDS;
+        fetchData();
+      }
+      document.getElementById('countdown').textContent = countdown + 's';
+    }
+
+    fetchData();
+    setInterval(tick, 1000);
+  </script>
+</body>
+</html>
