@@ -142,19 +142,25 @@
     }
 
     async function fetchData() {
-      try {
-        const res = await fetch('/api/option-chain');
-        if (!res.ok) {
-          const e = await res.json().catch(() => ({}));
-          setStatus(e.error || ('Server error ' + res.status), 'error');
-          return;
+      const endpoints = ['/api/option-chain', '/optionchain/api/option-chain'];
+      let lastError = null;
+      
+      for (const endpoint of endpoints) {
+        try {
+          const res = await fetch(endpoint);
+          if (res.ok) {
+            latest = await res.json();
+            setStatus(latest.staleError ? ('Showing cached data. Last NSE error: ' + latest.staleError) : '', 'warn');
+            render();
+            return;
+          }
+          lastError = res.status;
+        } catch (err) {
+          lastError = err.message;
         }
-        latest = await res.json();
-        setStatus(latest.staleError ? ('Showing cached data. Last NSE error: ' + latest.staleError) : '', 'warn');
-        render();
-      } catch (err) {
-        setStatus('Cannot reach backend: ' + err.message, 'error');
       }
+      
+      setStatus('Cannot reach backend: ' + lastError, 'error');
     }
 
     function tick() {
