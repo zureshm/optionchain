@@ -8,7 +8,7 @@ const { processChain } = require('./processor');
 
 const PORT = process.env.PORT || 8080;
 const REFRESH_MS = 10 * 1000; // 10s delay between NSE hits (avoid getting blocked)
-const STRIKE_WINDOW = 10;
+const STRIKE_WINDOW = 30; //30 strike prices
 
 const app = express();
 
@@ -16,6 +16,7 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:4200',
   'http://209.38.126.3:3000',
+  'http://209.38.126.3:4200',
   'http://144.126.255.14:3000',
   'http://144.126.255.14:4200',
   'https://suralgo.duckdns.org',
